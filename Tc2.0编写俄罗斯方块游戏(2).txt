@@ -1,0 +1,207 @@
+                         
+						 Tc2.0编写俄罗斯方块游戏(2)
+
+作者：陈畅
+联系地址：上海财经大学图书馆
+电子邮件：shchenchang@gmail.com
+个人主页：http://shchenchang.spaces.live.com
+QQ:7019717（欢迎编程爱好者加我为好友）
+
+
+关于俄罗斯方块程序的一些问题：
+******************************************************
+Tc2.0中怎么样设置图形显示？
+Tc2.0中常用图形函数的用法？
+怎样获取鍵盘输入？
+怎样控制方块的移动？
+怎样控制时间间隔(用于游戏中控制形状的下落)？
+游戏中的各种形状及整个游戏空间怎么用数据表示？
+游戏中怎么判断左右及向下移动的可能性？
+游戏中怎么判断某一形状旋转的可能性？
+按向下方向键时加速某一形状下落速度的处理？
+怎么判断某一形状已经到底？
+怎么判断某一已经被填满？
+怎么消去已经被填满的一行？
+怎么消去某一形状落到底后能够消去的所有的行？(如长条最多可以消去四行)
+怎样修改游戏板的状态？
+怎样统计分数？
+怎样处理升级后的加速问题？
+怎样判断游戏结束？
+关于计分板设计的问题。
+关于“下一个”形状取法的问题。
+剩下的问题。
+
+******************************************************
+新的问题：
+我想有一个最高记录的显示，应该怎么做呀？
+我想实现一个进度存储功能，应该怎么做呀？
+
+
+
+
+怎样获取鍵盘输入？
+
+在Tc2.0中有一个处理键盘输入的函数bioskey();
+int bioskey(int cmd);
+当cmd为1时，bioskey()检测是否有键按下。没有键按下时返回0；有键按下时返回按键码(
+任何按键码都不为0)，但此时并不将检测到的按键码从键盘缓冲队列中清除。
+当cmd为0时，bioskey()返回键盘缓冲队列中的按键码，并将此按键码从键盘缓冲队列中清
+除。如果键盘缓冲队列为空，则一直等到有键按下，才将得到的按键码返回。
+
+Escape键的按键码为0x11b,下面的小程序可以获取按键的按键码。
+
+for (;;)
+{
+	key=bioskey(0); /* wait for a keystroke */
+	printf("0x%x\n",key);
+	if (key==0x11b) break;  /* Escape */
+}
+
+常用按键的按键码如下：
+
+#define VK_LEFT  0x4b00
+#define VK_RIGHT 0x4d00
+#define VK_DOWN  0x5000
+#define VK_UP    0x4800
+#define VK_HOME  0x4700
+#define VK_END   0x4f00
+#define VK_SPACE 0x3920
+#define VK_ESC   0x011b
+#define VK_ENTER 0x1c0d
+
+
+完整的程序请参见prog2.c、prog3.c。
+prog2.c获取按键的按键码，按Escape键退出程序。
+prog3.c根据不同的按键进行不同的操作，按Escape键退出程序。
+
+
+怎样控制方块的移动？
+
+方块移动的实现很简单，将方块原来的位置用背景色画一个同样大小的方块，将原来的方块
+涂去。然后在新的位置上重新绘制方块就可以了。这样就实现了方块的移动。
+
+完整的程序请参见prog4.c。
+这个用方向键控制一个黄色的小方块在屏幕上上、下、左、右移动。这个程序用到了前面几
+个问题讲的内容，如果你有点忘了，还要回头看看哦。：）
+
+
+怎样控制时间间隔(用于游戏中控制形状的下落)？
+
+解决这个问题要用到时钟中断。时钟中断大约每秒钟发生18.2次。截获正常的时钟中断后，
+在处理完正常的时钟中断后，将一个计时变量加1。这样，每秒钟计时变量约增加18。需要
+控控制时间的时候，只需要看这个计时变量就行了。
+
+
+截获时钟中断要用到函数getvect()和setvect()。
+两个函数的声明如下：
+?void interrupt (*getvect(int interruptno))();
+?void setvect(int interruptno, void interrupt (*isr) ( ));
+
+保留字interrupt指示函数是一个中断处理函数。在调用中断处理函数的时候，所有的寄存
+器将会被保存。中断处理函数的返回时的指令是iret，而不是一般函数用到的ret指令。
+
+getvect()根据中断号interruptno获取中断号为interruptno的中断处理函数的入口地址。
+setvect()将中断号为interruptno的中断处理函数的入口地址改为isr()函数的入口地址。
+即中断发生时，将调用isr()函数。
+
+
+在程序开始的时候截获时钟中断，并设置新的中断处理。在程序结束的时候，一定要记着恢
+复时钟中断哦，不然系统的计时功能会出问题的。
+
+具体演示程序请参见prog5.c。
+
+由于中断处理大家可能用的不多，所以我把prog5.c这个程序完整地贴在下面，并加上详细
+的解释。
+
+/* prog5.c */
+    This is an interrupt service routine.  You can NOT compile this
+    program with Test Stack Overflow turned on and get an executable
+    file which will operate correctly. */
+
+/* 这个程序每隔1秒钟输出一个整数，10秒钟后结束程序。
+   按escape键提前退出程序 。*/
+
+#include <stdio.h>
+#include <dos.h>
+#include <conio.h>
+
+/* Escape key */
+#define VK_ESC 0x11b 
+
+#define TIMER 0x1c    /* 时钟中断的中断号 */
+
+/* 中断处理函数在C和C++中的表示略有不同。
+   如果定义了_cplusplus则表示在C++环境下，否则是在C环境下。 */
+
+#ifdef __cplusplus
+    #define __CPPARGS ...
+#else
+	#define __CPPARGS
+#endif
+
+int TimerCounter=0; /* 计时变量，每秒钟增加18。 */
+
+/* 指向原来时钟中断处理过程入口的中断处理函数指针(句柄) */
+void interrupt ( *oldhandler)(__CPPARGS);
+
+/* 新的时钟中断处理函数 */
+void interrupt newhandler(__CPPARGS)
+{
+/* increase the global counter */
+   TimerCounter++;
+
+/* call the old routine */
+   oldhandler();
+}
+
+/* 设置新的时钟中断处理过程 */
+void SetTimer(void interrupt (*IntProc)(__CPPARGS))
+{
+	oldhandler=getvect(TIMER);
+	disable(); /* 设置新的时钟中断处理过程时，禁止所有中断 */
+	setvect(TIMER,IntProc);
+	enable();  /* 开启中断 */
+}
+
+/* 恢复原有的时钟中断处理过程 */
+void KillTimer()
+{
+	disable();
+	setvect(TIMER,oldhandler);
+	enable();
+}
+
+
+void main(void)
+{
+	int key,time=0;
+
+	SetTimer(newhandler); /* 修改时钟中断 */
+
+	for (;;)
+	{
+		if (bioskey(1))
+		{
+			key=bioskey(0);
+			if (key==VK_ESC) /* 按escape键提前退出程序 */
+			{
+				printf("User cancel!\n");
+				break;
+			}
+		}
+		if (TimerCounter>18) /* 1秒钟处理一次 */
+		{
+			/* 恢复计时变量 */
+			TimerCounter=0;
+			time++;
+			printf("%d\n",time);
+			if (time==10) /* 10秒钟后结束程序 */
+			{
+				printf("Program terminated normally!\n");
+				break;
+			}
+		}
+	}
+	KillTimer(); /* 恢复时钟中断 */
+
+}
